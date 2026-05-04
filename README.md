@@ -2,7 +2,8 @@
 
 Convert a Nintendo Wii Nunchuk into a wireless Bluetooth HID device using the **XIAO ESP32-C3** and **PlatformIO**. The device presents itself as a composite HID — simultaneously a Gamepad, Mouse, and Keyboard — and includes battery reporting, deep sleep power management, and gesture recognition.
 
----
+![Inside view](docs/inside.jpg)
+![final view](docs/final.jpg)
 
 ## Features
 
@@ -21,24 +22,24 @@ Convert a Nintendo Wii Nunchuk into a wireless Bluetooth HID device using the **
 ## Hardware
 
 | Component | Details |
-|---|---|
+| --- | --- |
 | MCU | Seeed XIAO ESP32-C3 |
 | Controller | Nintendo Wii Nunchuk |
-| Battery | LiPo (any size; 300–500 mAh recommended) |
+| Battery | LiPo (I use 802035 500 mAh ) |
 | Power button | Momentary tactile switch |
 
 ### Wiring
 
 | Nunchuk Pin | XIAO ESP32-C3 |
-|---|---|
+| --- | --- |
 | VCC (red) | 3.3V |
 | GND (white) | GND |
 | SDA (green) | GPIO 6 |
 | SCL (yellow) | GPIO 7 |
 
 | Component | XIAO ESP32-C3 |
-|---|---|
-| LED (active HIGH) | GPIO 10 (onboard) |
+| --- | --- |
+| LED (active HIGH) | GPIO 10 →200 Ω → LED → GND |
 | Power button | GPIO 3 → GND (internal pull-up) |
 | Battery ADC | GPIO 2 / A0 (via 2:1 voltage divider) |
 
@@ -57,7 +58,7 @@ BAT+ ── R1 (100 kΩ) ── GPIO 2 ── R2 (100 kΩ) ── GND
 ### Dependencies
 
 | Library | Version |
-|---|---|
+| --- | --- |
 | [NimBLE-Arduino](https://github.com/h2zero/NimBLE-Arduino) | ^1.4.2 |
 
 ### Project structure
@@ -74,7 +75,7 @@ nunchuk-ble-hid/
 ### BLE HID Reports
 
 | Report ID | Type | Payload |
-|---|---|---|
+| --- | --- | --- |
 | 1 | Gamepad | joyX, joyY (int8) · accelX/Y/Z (int16 LE) · buttons |
 | 2 | Mouse | buttons · deltaX · deltaY · wheel · hwheel (all int8) |
 | 3 | Keyboard | modifier (uint8) · keycode (uint8) |
@@ -86,7 +87,7 @@ nunchuk-ble-hid/
 ### Both modes
 
 | Input | Action |
-|---|---|
+| --- | --- |
 | Hold **C + Z** for 2 s | Toggle Gamepad ↔ Mouse mode |
 | Hold **power button** for 2 s | Enter deep sleep |
 | Hold **power button** for 2 s (sleeping) | Wake up |
@@ -94,7 +95,7 @@ nunchuk-ble-hid/
 ### Gamepad mode
 
 | Input | HID output |
-|---|---|
+| --- | --- |
 | Joystick X/Y | Axes X/Y |
 | Accelerometer | Axes Rx/Ry/Rz |
 | C button | Button 1 |
@@ -103,7 +104,7 @@ nunchuk-ble-hid/
 ### Mouse mode
 
 | Input | Action |
-|---|---|
+| --- | --- |
 | Joystick X/Y | Cursor movement |
 | C button | Left click |
 | Z button | Right click |
@@ -120,7 +121,7 @@ All tunable parameters are defined as `constexpr` at the top of `main.cpp`.
 ### Timing
 
 | Constant | Default | Description |
-|---|---|---|
+| --- | --- | --- |
 | `AUTO_SLEEP_MS` | 600 000 | Idle auto-sleep timeout (10 min) |
 | `WAKE_HOLD_MS` | 2 000 | Hold duration required to confirm wake |
 | `SLEEP_HOLD_MS` | 2 000 | Hold duration to trigger sleep |
@@ -131,7 +132,7 @@ All tunable parameters are defined as `constexpr` at the top of `main.cpp`.
 ### Mouse sensitivity
 
 | Index | Scale | Max delta | Use case |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | 0 — Low | 0.10 | 12 px | Precise / small screen |
 | 1 — Mid | 0.18 | 20 px | General use (default) |
 | 2 — High | 0.28 | 30 px | Fast / large display |
@@ -139,7 +140,7 @@ All tunable parameters are defined as `constexpr` at the top of `main.cpp`.
 ### Swipe gesture
 
 | Constant | Default | Description |
-|---|---|---|
+| --- | --- | --- |
 | `SWIPE_DELTA_THRESH` | 0.18 g | Minimum per-frame gX change to count |
 | `SWIPE_CONFIRM_FRAMES` | 3 | Consecutive frames required to confirm |
 | `SWIPE_COOLDOWN_MS` | 800 | Minimum ms between swipe triggers |
@@ -153,7 +154,7 @@ Swipe detection uses the **per-frame delta of filtered gX** (not absolute value)
 The following features are fully implemented in `main.cpp` but commented out. Uncomment the relevant lines to enable them.
 
 | Feature | How to enable | Effect |
-|---|---|---|
+| --- | --- | --- |
 | Flick → middle click | Uncomment `detectFlick(d)` call | Quick wrist flick sends middle mouse button |
 | Still lock | Uncomment `checkCursorLock(d, now)` call | Freezes cursor when controller is at rest |
 | Flip pause | Uncomment `checkFlipped(d)` call | Pauses all input when Nunchuk is upside-down |
@@ -163,7 +164,7 @@ The following features are fully implemented in `main.cpp` but commented out. Un
 ## LED Behaviour
 
 | Pattern | Meaning |
-|---|---|
+| --- | --- |
 | Single blink every 2 s | Normal operation |
 | 1 blink on boot | Started in Gamepad mode |
 | 2 blinks on boot | Started in Mouse mode |
@@ -178,7 +179,7 @@ The following features are fully implemented in `main.cpp` but commented out. Un
 The following settings survive power cycles and deep sleep:
 
 | Key | Description |
-|---|---|
+| --- | --- |
 | `sens` | Sensitivity index (0 / 1 / 2) |
 | `mode` | Last active mode (0 = Gamepad, 1 = Mouse) |
 
