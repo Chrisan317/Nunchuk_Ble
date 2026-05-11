@@ -5,8 +5,11 @@
 //  Wiring:
 //    Nunchuk VCC -> 3.3V        Nunchuk GND -> GND
 //    Nunchuk SDA -> GPIO 6      Nunchuk SCL -> GPIO 7
-//    Power button -> GPIO 3     (internal pull-up, press to GND)
-//    Battery ADC  -> GPIO 2/A0  (2:1 voltage divider)
+//    Power button  -> GPIO 3     (internal pull-up, press to GND)
+//    Battery ADC   -> GPIO 2/A0  (2:1 voltage divider)
+//    P-MOSFET gate -> GPIO 4     (LOW = Nunchuk on, HIGH = off)
+//    P-MOSFET: Source -> 3.3V  Drain -> Nunchuk VCC
+//              100kΩ pull-up Gate-to-Source (default off when GPIO floats)
 //
 //  LED (GPIO 10, active HIGH):
 //    Normal      : heartbeat blink every 2s
@@ -50,11 +53,12 @@
 #include "ble_hid.h"
 
 // ── Pin assignments ───────────────────────────────────────────
-constexpr uint8_t SDA_PIN   = 6;
-constexpr uint8_t SCL_PIN   = 7;
-constexpr uint8_t LED_PIN   = 10;  // Active HIGH
-constexpr uint8_t POWER_PIN = 3;   // Power button (internal pull-up)
-constexpr uint8_t BAT_PIN   = 2;   // Battery ADC (A0, 2:1 divider)
+constexpr uint8_t SDA_PIN         = 6;
+constexpr uint8_t SCL_PIN         = 7;
+constexpr uint8_t LED_PIN         = 10;  // Active HIGH
+constexpr uint8_t POWER_PIN       = 3;   // Power button (internal pull-up)
+constexpr uint8_t BAT_PIN         = 2;   // Battery ADC (A0, 2:1 divider)
+constexpr uint8_t NUNCHUK_PWR_PIN = 4;   // P-MOSFET gate (LOW=on, HIGH=off)
 
 // ── Mode ──────────────────────────────────────────────────────
 enum class Mode { GAMEPAD, MOUSE };
@@ -227,6 +231,12 @@ void goToSleep(const char* reason) {
     }
 
     Wire.end();
+
+    // Cut Nunchuk power: P-MOS gate HIGH = off
+    digitalWrite(NUNCHUK_PWR_PIN, HIGH);
+    gpio_hold_en((gpio_num_t)NUNCHUK_PWR_PIN);  // Latch HIGH through deep sleep
+    gpio_deep_sleep_hold_en();                   // Enable global GPIO hold
+
     ledOff();
 
     // Wait for button release to prevent immediate re-wake
@@ -433,10 +443,18 @@ void checkSensSwitch(const NunchukData& d, uint32_t now) {
 // ════════════════════════════════════════════════════════════
 //  Input change detection (for power-save throttling)
 // ════════════════════════════════════════════════════════════
+// Returns true if joystick or buttons changed.
+// Used for auto-sleep timer - excludes accelerometer so table
+// vibration does not reset the idle countdown.
 bool hasInputChanged(const NunchukData& d) {
     return (d.joyX != st.lastJoyX || d.joyY != st.lastJoyY ||
-            d.btnC != st.lastBtnC || d.btnZ  != st.lastBtnZ ||
-            !d.isStill);
+            d.btnC != st.lastBtnC || d.btnZ  != st.lastBtnZ);
+}
+
+// Returns true if there is any motion including accelerometer.
+// Used for 20Hz power-save throttle only.
+bool hasMotionForThrottle(const NunchukData& d) {
+    return hasInputChanged(d) || !d.isStill;
 }
 
 void cacheInput(const NunchukData& d) {
@@ -451,9 +469,16 @@ void setup() {
     Serial.begin(115200);
     delay(300);
 
-    pinMode(LED_PIN,   OUTPUT);
-    pinMode(POWER_PIN, INPUT_PULLUP);
-    pinMode(BAT_PIN,   INPUT);
+    // Release GPIO hold state latched during previous deep sleep
+    // Must be called before driving any GPIO
+    gpio_hold_dis((gpio_num_t)NUNCHUK_PWR_PIN);
+    gpio_deep_sleep_hold_dis();
+
+    pinMode(LED_PIN,         OUTPUT);
+    pinMode(POWER_PIN,       INPUT_PULLUP);
+    pinMode(BAT_PIN,         INPUT);
+    pinMode(NUNCHUK_PWR_PIN, OUTPUT);
+    digitalWrite(NUNCHUK_PWR_PIN, LOW);  // P-MOS: gate LOW = conducts = Nunchuk powered
     ledOff();
 
     auto wakeReason = esp_sleep_get_wakeup_cause();
@@ -479,6 +504,7 @@ void setup() {
                   sensIdx, currentMode == Mode::GAMEPAD ? "Gamepad" : "Mouse");
 
     // Init Nunchuk
+    delay(50);  // Allow Nunchuk VCC rail to stabilise after P-MOS turns on
     Serial.printf("[NUNCHUK] Init SDA=%d SCL=%d\n", SDA_PIN, SCL_PIN);
     if (!nunchuk.begin(SDA_PIN, SCL_PIN)) {
         Serial.println("[NUNCHUK] Init failed - check wiring");
@@ -574,7 +600,9 @@ void loop() {
 
     // Update idle tracking (any joystick or button activity resets timer)
     if (hasInputChanged(d)) {
-        st.lastMotionMs = now;
+        st.lastMotionMs = now;  // Reset auto-sleep timer (joystick/buttons only)
+    }
+    if (hasMotionForThrottle(d)) {
         st.idleMode     = false;
     } else if ((now - st.lastMotionMs) > STILL_TIMEOUT) {
         if (!st.idleMode) {
